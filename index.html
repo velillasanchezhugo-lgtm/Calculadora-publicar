@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Calculadora de interés compuesto</title>
+<meta name="description" content="Calcula gratis cuánto crecerá tu dinero con interés compuesto: capital inicial, aportaciones mensuales, rentabilidad y años.">
+<style>
+  :root { --bg:#f5f7fa; --card:#fff; --text:#1b2430; --muted:#5b6675; --accent:#0f766e; --border:#d9dfe7; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0f1720; --card:#17212c; --text:#e8edf3; --muted:#9aa7b6; --accent:#2dd4bf; --border:#2a3745; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--text); line-height:1.5; }
+  main { max-width:760px; margin:0 auto; padding:24px 16px 48px; }
+  h1 { font-size:1.7rem; margin:0 0 4px; }
+  p.sub { color:var(--muted); margin:0 0 20px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:20px; margin-bottom:20px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:14px; }
+  label { display:block; font-size:.85rem; color:var(--muted); margin-bottom:4px; }
+  input, select { width:100%; padding:10px; font-size:1rem; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text); }
+  .results { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:14px; }
+  .stat { padding:14px; border-radius:10px; background:var(--bg); border:1px solid var(--border); }
+  .stat b { display:block; font-size:1.4rem; color:var(--accent); }
+  .stat span { font-size:.8rem; color:var(--muted); }
+  canvas { width:100%; height:260px; display:block; }
+  table { width:100%; border-collapse:collapse; font-size:.9rem; }
+  th, td { text-align:right; padding:8px; border-bottom:1px solid var(--border); }
+  th:first-child, td:first-child { text-align:left; }
+  .scroll { overflow-x:auto; }
+  footer { color:var(--muted); font-size:.8rem; text-align:center; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Calculadora de interés compuesto</h1>
+  <p class="sub">Descubre cuánto puede crecer tu dinero con el paso del tiempo.</p>
+
+  <section class="card">
+    <div class="grid">
+      <div><label for="inicial">Capital inicial (€)</label><input id="inicial" type="number" min="0" step="100" value="1000"></div>
+      <div><label for="aporte">Aportación mensual (€)</label><input id="aporte" type="number" min="0" step="10" value="100"></div>
+      <div><label for="tasa">Rentabilidad anual (%)</label><input id="tasa" type="number" min="0" step="0.1" value="7"></div>
+      <div><label for="anios">Años</label><input id="anios" type="number" min="1" max="80" step="1" value="20"></div>
+      <div><label for="freq">Capitalización</label>
+        <select id="freq">
+          <option value="12" selected>Mensual</option>
+          <option value="4">Trimestral</option>
+          <option value="1">Anual</option>
+        </select>
+      </div>
+    </div>
+  </section>
+
+  <section class="card results" aria-live="polite">
+    <div class="stat"><b id="rFinal">–</b><span>Capital final</span></div>
+    <div class="stat"><b id="rAport">–</b><span>Total aportado</span></div>
+    <div class="stat"><b id="rInt">–</b><span>Intereses ganados</span></div>
+  </section>
+
+  <section class="card"><canvas id="grafico" aria-label="Evolución del capital"></canvas></section>
+
+  <section class="card scroll">
+    <table>
+      <thead><tr><th>Año</th><th>Aportado</th><th>Intereses</th><th>Capital</th></tr></thead>
+      <tbody id="tabla"></tbody>
+    </table>
+  </section>
+
+  <footer>Cálculo orientativo. No es asesoramiento financiero; la rentabilidad real no está garantizada.</footer>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const eur = n => n.toLocaleString("es-ES", { style:"currency", currency:"EUR", maximumFractionDigits:0 });
+
+function simular() {
+  const inicial = Math.max(0, +$("inicial").value || 0);
+  const aporte  = Math.max(0, +$("aporte").value || 0);
+  const tasa    = Math.max(0, +$("tasa").value || 0) / 100;
+  const anios   = Math.min(80, Math.max(1, Math.floor(+$("anios").value || 1)));
+  const n       = +$("freq").value;
+
+  // Se simula mes a mes; el interés se acredita según la frecuencia elegida.
+  const tasaPeriodo = tasa / n;
+  const mesesPorPeriodo = 12 / n;
+  let saldo = inicial, aportado = inicial, acumulado = 0;
+  const filas = [{ anio:0, aportado:inicial, saldo:inicial }];
+
+  for (let m = 1; m <= anios * 12; m++) {
+    saldo += aporte; aportado += aporte;
+    if (m % mesesPorPeriodo === 0) saldo *= 1 + tasaPeriodo;
+    if (m % 12 === 0) filas.push({ anio:m / 12, aportado, saldo });
+  }
+  return { filas, saldo, aportado };
+}
+
+function dibujar(filas) {
+  const c = $("grafico"), dpr = window.devicePixelRatio || 1;
+  const w = c.clientWidth, h = c.clientHeight;
+  c.width = w * dpr; c.height = h * dpr;
+  const g = c.getContext("2d"); g.scale(dpr, dpr);
+  const css = getComputedStyle(document.documentElement);
+  const accent = css.getPropertyValue("--accent").trim(), muted = css.getPropertyValue("--muted").trim();
+  const pad = { l:56, r:10, t:10, b:24 };
+  const max = Math.max(...filas.map(f => f.saldo)) || 1;
+  const x = i => pad.l + (w - pad.l - pad.r) * i / (filas.length - 1 || 1);
+  const y = v => h - pad.b - (h - pad.t - pad.b) * v / max;
+
+  g.font = "11px system-ui"; g.fillStyle = muted; g.strokeStyle = css.getPropertyValue("--border").trim();
+  for (let i = 0; i <= 4; i++) {
+    const v = max * i / 4;
+    g.beginPath(); g.moveTo(pad.l, y(v)); g.lineTo(w - pad.r, y(v)); g.stroke();
+    g.fillText(eur(v), 4, y(v) + 4);
+  }
+  g.fillText("Año " + filas[filas.length - 1].anio, w - 52, h - 6);
+
+  const linea = (clave, color) => {
+    g.beginPath(); g.strokeStyle = color; g.lineWidth = 2.5;
+    filas.forEach((f, i) => i ? g.lineTo(x(i), y(f[clave])) : g.moveTo(x(i), y(f[clave])));
+    g.stroke();
+  };
+  linea("aportado", muted);
+  linea("saldo", accent);
+}
+
+function actualizar() {
+  const { filas, saldo, aportado } = simular();
+  $("rFinal").textContent = eur(saldo);
+  $("rAport").textContent = eur(aportado);
+  $("rInt").textContent   = eur(saldo - aportado);
+  $("tabla").innerHTML = filas.slice(1).map(f =>
+    `<tr><td>${f.anio}</td><td>${eur(f.aportado)}</td><td>${eur(f.saldo - f.aportado)}</td><td>${eur(f.saldo)}</td></tr>`).join("");
+  dibujar(filas);
+}
+
+document.querySelectorAll("input,select").forEach(el => el.addEventListener("input", actualizar));
+window.addEventListener("resize", actualizar);
+actualizar();
+</script>
+</body>
+</html>
